@@ -15,8 +15,13 @@ export default function App() {
   const [roomCryptoKeys, setRoomCryptoKeys] = useState<{ [roomId: string]: CryptoKey }>({});
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean | null; error: string | null }>({
+    connected: null,
+    error: null,
+  });
+  const [showDbWarning, setShowDbWarning] = useState(true);
 
-  // Load user session from local storage on mount
+  // Load user session and check Firestore connection on mount
   useEffect(() => {
     const savedUser = localStorage.getItem('chat_user');
     if (savedUser) {
@@ -28,6 +33,19 @@ export default function App() {
       }
     }
     setCheckingAuth(false);
+
+    // Perform database connection check
+    const testConnection = async () => {
+      try {
+        const testRef = doc(db, '_connection_check_dummy_', 'test');
+        await getDoc(testRef);
+        setDbStatus({ connected: true, error: null });
+      } catch (err: any) {
+        console.error('Firestore connection check failed:', err);
+        setDbStatus({ connected: false, error: err.message || String(err) });
+      }
+    };
+    testConnection();
   }, []);
 
   // Derive cryptographic key from room salt and passphrase
@@ -102,15 +120,38 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen mesh-gradient text-slate-200 flex h-screen overflow-hidden relative font-sans">
-      {/* Decorative ambient background glows */}
-      <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -mr-48 -mt-48"></div>
-      <div className="absolute bottom-0 left-0 w-64 h-64 bg-rose-500/5 rounded-full blur-[80px] pointer-events-none -ml-32 -mb-32"></div>
-      
-      {/* 1. Sidebar Panel */}
-      <div className={`h-full border-r border-white/10 glass-dark shrink-0 z-10 ${
-        selectedRoomId ? 'hidden md:flex w-80' : 'flex w-full md:w-80'
-      }`}>
+    <div className="min-h-screen mesh-gradient text-slate-200 flex flex-col h-screen overflow-hidden relative font-sans">
+      {/* Connection Failure Warn Banner */}
+      {dbStatus.connected === false && showDbWarning && (
+        <div className="bg-rose-950/80 border-b border-rose-500/25 px-4 py-3 text-xs text-rose-200 flex items-center justify-between z-50 backdrop-blur-md">
+          <div className="flex items-center gap-2.5">
+            <Shield className="w-5 h-5 text-rose-400 shrink-0" />
+            <div className="leading-normal">
+              <span className="font-bold text-white">Database Connection Failure:</span> {dbStatus.error}. 
+              <span className="block mt-0.5 text-rose-300/80">
+                If hosted on GitHub Pages, verify your Repository Secrets/Variables (`VITE_FIREBASE_API_KEY`, etc.) are configured. For custom projects, ensure Firestore is provisioned in the console and the API key is not referer-restricted.
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowDbWarning(false)}
+            className="text-rose-300 hover:text-white font-bold ml-4 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Main Workspace Frame */}
+      <div className="flex-grow flex h-full overflow-hidden relative">
+        {/* Decorative ambient background glows */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -mr-48 -mt-48"></div>
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-rose-500/5 rounded-full blur-[80px] pointer-events-none -ml-32 -mb-32"></div>
+        
+        {/* 1. Sidebar Panel */}
+        <div className={`h-full border-r border-white/10 glass-dark shrink-0 z-10 ${
+          selectedRoomId ? 'hidden md:flex w-80' : 'flex w-full md:w-80'
+        }`}>
         <ChatSidebar
           currentUser={currentUser}
           selectedRoomId={selectedRoomId}
@@ -187,7 +228,7 @@ export default function App() {
           }}
         />
       )}
-
+      </div>
     </div>
   );
 }

@@ -26,11 +26,13 @@ export default function ChatSidebar({
 }: ChatSidebarProps) {
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [filterQuery, setFilterQuery] = useState('');
   const [decryptedSnippets, setDecryptedSnippets] = useState<{ [roomId: string]: string }>({});
 
   // Listen to active rooms the user is a member of
   useEffect(() => {
+    setDbError(null);
     const roomsRef = collection(db, 'rooms');
     const q = query(
       roomsRef,
@@ -46,10 +48,12 @@ export default function ChatSidebar({
           roomsList.push({ id: doc.id, ...doc.data() } as ChatRoom);
         });
         setRooms(roomsList);
+        setDbError(null);
         setLoading(false);
       },
       (error) => {
         console.error('Error listening to rooms:', error);
+        setDbError(error.message || String(error));
         setLoading(false);
       }
     );
@@ -170,6 +174,16 @@ export default function ChatSidebar({
           <div className="flex flex-col items-center justify-center h-48 space-y-2 text-white/50">
             <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
             <span className="text-xs">Loading chats...</span>
+          </div>
+        ) : dbError ? (
+          <div className="flex flex-col items-center justify-center h-48 text-center px-4 space-y-2 text-rose-300">
+            <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/25 flex items-center justify-center text-rose-400">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <p className="text-xs font-bold text-rose-200">Database Connection Offline</p>
+            <p className="text-[10px] text-rose-300/60 leading-normal max-w-[210px] break-words">
+              {dbError}
+            </p>
           </div>
         ) : filteredRooms.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 text-center px-4">

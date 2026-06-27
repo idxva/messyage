@@ -59,6 +59,7 @@ export default function ChatRoom({
   const [passphraseInput, setPassphraseInput] = useState('');
   const [passphraseError, setPassphraseError] = useState('');
   const [loadingRoom, setLoadingRoom] = useState(true);
+  const [roomError, setRoomError] = useState<string | null>(null);
   
   // Timer settings
   const [expirationDuration, setExpirationDuration] = useState<number>(0); // 0 = No expiration
@@ -98,6 +99,7 @@ export default function ChatRoom({
   // 1. Fetch Room Details
   useEffect(() => {
     setLoadingRoom(true);
+    setRoomError(null);
     setRoom(null);
     setMessages([]);
     setDecryptedMessages({});
@@ -111,6 +113,10 @@ export default function ChatRoom({
       if (docSnap.exists()) {
         setRoom({ id: docSnap.id, ...docSnap.data() } as RoomType);
       }
+      setLoadingRoom(false);
+    }, (err) => {
+      console.error('Error fetching room:', err);
+      setRoomError(err.message || String(err));
       setLoadingRoom(false);
     });
 
@@ -138,6 +144,9 @@ export default function ChatRoom({
         msgs.push({ id: docSnap.id, ...docSnap.data() } as Message);
       });
       setMessages(msgs);
+    }, (err) => {
+      console.error('Error fetching messages:', err);
+      setRoomError(err.message || String(err));
     });
 
     return () => unsubscribe();
@@ -395,16 +404,47 @@ export default function ChatRoom({
 
   if (loadingRoom) {
     return (
-      <div className="flex-1 bg-transparent flex flex-col justify-center items-center text-white/50">
+      <div className="flex-grow bg-transparent flex flex-col justify-center items-center text-white/50">
         <div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mb-2" />
         <span className="text-sm">Connecting to secure tunnel...</span>
       </div>
     );
   }
 
+  if (roomError) {
+    return (
+      <div className="flex-grow bg-transparent flex flex-col justify-center items-center text-rose-300 p-8 text-center">
+        <div className="max-w-md space-y-6 glass p-8 rounded-3xl border border-rose-500/25 shadow-2xl relative z-10">
+          <div className="w-16 h-16 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center justify-center mx-auto text-rose-400 shadow-xl">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold text-white tracking-tight">
+              Secure Connection Failed
+            </h2>
+            <p className="text-xs text-rose-300/70 leading-relaxed">
+              Unable to sync secure messages. This can happen if the database rules are blocking access or the Firebase configuration is invalid.
+            </p>
+            <p className="text-xs text-rose-400 font-mono bg-rose-950/20 p-3 rounded-xl border border-rose-500/15 break-words font-mono">
+              {roomError}
+            </p>
+          </div>
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="inline-flex bg-white/5 hover:bg-white/10 text-white text-xs font-semibold px-6 py-3 rounded-xl transition-all border border-white/10 cursor-pointer"
+            >
+              Back to Sidebar
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (!room) {
     return (
-      <div className="flex-1 bg-transparent flex flex-col justify-center items-center text-white/40">
+      <div className="flex-grow bg-transparent flex flex-col justify-center items-center text-white/40">
         <AlertCircle className="w-12 h-12 text-white/10 mb-2" />
         <span className="text-sm">Secure room not found or access denied.</span>
       </div>

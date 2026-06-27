@@ -14,6 +14,27 @@ const firebaseConfig = {
 // The Firestore database ID - 'default' means the default database
 const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || 'default';
 
+// Detect if any custom configuration was supplied
+const isCustomConfig = !!(
+  import.meta.env.VITE_FIREBASE_PROJECT_ID ||
+  import.meta.env.VITE_FIREBASE_API_KEY ||
+  import.meta.env.VITE_FIREBASE_APP_ID
+);
+
+console.log(
+  `[Firebase Init] Using ${isCustomConfig ? 'custom environment config' : 'fallback template config'} (Project: ${firebaseConfig.projectId})`
+);
+
+if (isCustomConfig) {
+  const missing = [];
+  if (!import.meta.env.VITE_FIREBASE_PROJECT_ID) missing.push('VITE_FIREBASE_PROJECT_ID');
+  if (!import.meta.env.VITE_FIREBASE_API_KEY) missing.push('VITE_FIREBASE_API_KEY');
+  if (!import.meta.env.VITE_FIREBASE_APP_ID) missing.push('VITE_FIREBASE_APP_ID');
+  if (missing.length > 0) {
+    console.warn(`[Firebase Init] Warning: Custom configuration is active but missing critical variables: ${missing.join(', ')}. This might prevent database connection.`);
+  }
+}
+
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
