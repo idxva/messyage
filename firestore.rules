@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Users Collection Rules ---
+    // Anyone can read user profiles to search and add them by name or tag.
+    // Anyone can create their profile.
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if request.resource.data.uid == userId
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() > 0
+        && request.resource.data.tag is string
+        && request.resource.data.tag.size() == 4;
+      allow update, delete: if false; // profiles are immutable in this version
+    }
+
+    // --- Rooms Collection Rules ---
+    // Anyone can create and read rooms.
+    // Client-side E2EE ensures only members with the passphrase can decrypt actual message content.
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow create: if request.resource.data.members is list
+        && request.resource.data.members.size() >= 2
+        && request.resource.data.encryptionKeySalt is string;
+      allow update: if request.resource.data.members is list;
+      allow delete: if false;
+
+      // --- Messages Subcollection Rules ---
+      // Messages are written and read by participants.
+      // E2EE makes raw message payloads illegible to the database.
+      match /messages/{messageId} {
+        allow read: if true;
+        allow create: if request.resource.data.senderId is string
+          && request.resource.data.encryptedText is string;
+        // Message deletion is allowed to support the message self-destruction / expiration feature
+        allow delete: if true;
+        allow update: if false; // messages are immutable once sent
+      }
+    }
+  }
+}

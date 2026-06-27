@@ -1,0 +1,6 @@
+{
+  "name": "Secure Messaging App",
+  "description": "A responsive group messaging application featuring real-time client-side encryption, file sharing, and self-destructing temporary message expiration, built with Firebase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
