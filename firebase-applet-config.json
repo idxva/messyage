@@ -1,10 +1,10 @@
 {
-  "projectId": "mercurial-valor-62t1j",
-  "appId": "1:327674895758:web:2a9934bdd2f378defc18df",
-  "apiKey": "AIzaSyDNzvtFjKjtDtSAup1txPLmEKDhH1M0Qe0",
-  "authDomain": "mercurial-valor-62t1j.firebaseapp.com",
+  "projectId": "messyage-b82a3",
+  "appId": "1:118650433319:web:668fcc0c75f47191d20302",
+  "apiKey": "AIzaSyC_8-gJdWUVs8mUVzWoc0ERI3eG9ZhWO3U",
+  "authDomain": "messyage-b82a3.firebaseapp.com",
   "firestoreDatabaseId": "default",
-  "storageBucket": "mercurial-valor-62t1j.firebasestorage.app",
-  "messagingSenderId": "327674895758",
-  "measurementId": ""
+  "storageBucket": "messyage-b82a3.firebasestorage.app",
+  "messagingSenderId": "118650433319",
+  "measurementId": "G-QP41Y3MK69"
 }

@@ -133,7 +133,7 @@ export default function ChatSidebar({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-white/5 border border-white/10 rounded-lg flex items-center justify-center shadow-md text-indigo-300">
-              <MessageSquare className="w-4.5 h-4.5" />
+              <MessageSquare className="w-[18px] h-[18px]" />
             </div>
             <span className="font-bold text-white font-display tracking-tight text-md">
               SecureSphere
@@ -238,10 +238,11 @@ export default function ChatSidebar({
                       </span>
                       {room.lastMessageAt && (
                         <span className="text-[9px] text-white/40 font-mono shrink-0">
-                          {new Date(room.lastMessageAt?.seconds * 1000 || Date.now()).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {(() => {
+                            const ts = room.lastMessageAt;
+                            const ms = ts?.seconds ? ts.seconds * 1000 : ts?.toDate ? ts.toDate().getTime() : (ts instanceof Date ? ts.getTime() : 0);
+                            return ms > 0 ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                          })()}
                         </span>
                       )}
                     </div>

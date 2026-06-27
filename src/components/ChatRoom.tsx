@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { db } from '../lib/firebase';
 import {
   collection,
@@ -30,6 +30,8 @@ import {
   ChevronDown,
   Info,
   ArrowLeft,
+  Copy,
+  CheckCheck,
 } from 'lucide-react';
 
 interface ChatRoomProps {
@@ -80,6 +82,18 @@ export default function ChatRoom({
 
   // Expiry ticker trigger (updated every second)
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [copiedPassphrase, setCopiedPassphrase] = useState(false);
+
+  // Robust timestamp parser - handles Firestore Timestamps, JS Date objects, ISO strings, and numbers
+  const getTimestampMs = useCallback((ts: any): number => {
+    if (!ts) return 0;
+    if (typeof ts === 'number') return ts;
+    if (ts.seconds !== undefined) return ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1e6);
+    if (ts instanceof Date) return ts.getTime();
+    if (typeof ts === 'string') return new Date(ts).getTime();
+    if (ts.toDate && typeof ts.toDate === 'function') return ts.toDate().getTime();
+    return 0;
+  }, []);
 
   // 1. Fetch Room Details
   useEffect(() => {
@@ -146,8 +160,7 @@ export default function ChatRoom({
       const expiredList = messages.filter((msg) => {
         if (!msg.expiresAt) return false;
         if (deletingMessageIdsRef.current.has(msg.id)) return false;
-        const expireTime = msg.expiresAt.seconds ? msg.expiresAt.seconds * 1000 : new Date(msg.expiresAt).getTime();
-        return expireTime < now;
+        return getTimestampMs(msg.expiresAt) < now;
       });
 
       for (const msg of expiredList) {
@@ -165,7 +178,7 @@ export default function ChatRoom({
     if (messages.length > 0) {
       cleanExpiredMessages();
     }
-  }, [messages, currentTime, roomId]);
+  }, [messages, currentTime, roomId, getTimestampMs]);
 
   // 5. Decrypt text messages as keys or messages update
   useEffect(() => {
@@ -297,7 +310,7 @@ export default function ChatRoom({
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     if (!input.trim() && !attachedFile) return;
     if (!activeKey) {
@@ -363,7 +376,7 @@ export default function ChatRoom({
         lastMessage: {
           senderName: currentUser.displayName,
           encryptedText: encryptedMsgPayload,
-          createdAt: new Date(),
+          createdAt: new Date().toISOString(),
         },
         lastMessageAt: serverTimestamp(),
       });
@@ -511,38 +524,54 @@ export default function ChatRoom({
                 </span>
                 <p className="text-[11px] text-white/50 leading-relaxed">
                   The encryption key is derived client-side using PBKDF2 with the salt: 
-                  <span className="font-mono bg-black/30 text-indigo-300 px-1.5 py-0.5 rounded border border-white/5 ml-1 text-[10px]">{room.encryptionKeySalt}</span>. 
+                  <span className="font-mono bg-black/30 text-indigo-300 px-1.5 py-0.5 rounded border border-white/5 ml-1 text-[10px] break-all">{room.encryptionKeySalt}</span>. 
                   Any database host can only see raw AES-GCM ciphertext.
                 </p>
               </div>
 
               {/* Password synchronization visual */}
-              <div className="bg-black/25 p-2.5 rounded-xl border border-white/10 flex items-center gap-3">
-                <div className="space-y-0.5 font-mono">
-                  <span className="text-[9px] text-white/40 uppercase font-semibold">Active Passphrase</span>
-                  <input
-                    type="password"
-                    value={localStorage.getItem(`room_key_${roomId}`) || 'N/A'}
-                    readOnly
-                    className="bg-transparent text-xs text-indigo-200 outline-none w-32 tracking-wider font-bold"
-                  />
+              <div className="bg-black/25 p-2.5 rounded-xl border border-white/10 flex items-center gap-3 shrink-0">
+                <div className="space-y-0.5 font-mono min-w-0">
+                  <span className="text-[9px] text-white/40 uppercase font-semibold block">Active Passphrase</span>
+                  <span className="text-xs text-indigo-200 font-bold tracking-wider block truncate max-w-[120px]">
+                    {activeKey ? '••••••••••••' : 'Not unlocked'}
+                  </span>
                 </div>
-                <button
-                  onClick={() => {
-                    const pass = prompt('Enter the shared room password passphrase to unlock room decryption:', localStorage.getItem(`room_key_${roomId}`) || '');
-                    if (pass !== null && pass.trim()) {
-                      onLoadRoomKey(roomId, pass.trim());
-                    }
-                  }}
-                  className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-indigo-300 hover:text-white rounded-lg text-[10px] font-bold border border-white/10 cursor-pointer transition-all shrink-0"
-                >
-                  Unlock / Edit
-                </button>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={async () => {
+                      const pass = localStorage.getItem(`room_key_${roomId}`);
+                      if (pass) {
+                        await navigator.clipboard.writeText(pass).catch(() => {});
+                        setCopiedPassphrase(true);
+                        setTimeout(() => setCopiedPassphrase(false), 2000);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-indigo-300 hover:text-white rounded-lg text-[10px] font-bold border border-white/10 cursor-pointer transition-all shrink-0 flex items-center gap-1"
+                    title="Copy passphrase to clipboard"
+                  >
+                    {copiedPassphrase ? <CheckCheck className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    {copiedPassphrase ? 'Copied!' : 'Copy'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const pass = prompt('Enter the shared room passphrase to unlock decryption:');
+                      if (pass !== null && pass.trim()) {
+                        onLoadRoomKey(roomId, pass.trim());
+                        setShowHeaderSettings(false);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-indigo-300 hover:text-white rounded-lg text-[10px] font-bold border border-white/10 cursor-pointer transition-all shrink-0"
+                  >
+                    Change
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
 
       {/* 2. Chat Feed Overlay or Conversation */}
       {!activeKey ? (
@@ -610,16 +639,13 @@ export default function ChatRoom({
                 {messages.map((msg) => {
                   const isSelf = msg.senderId === currentUser.uid;
                   const decryptedText = decryptedMessages[msg.id];
-                  const hasExpired = msg.expiresAt && (msg.expiresAt.seconds ? msg.expiresAt.seconds * 1000 : new Date(msg.expiresAt).getTime()) < currentTime;
+                  const expireMs = msg.expiresAt ? getTimestampMs(msg.expiresAt) : 0;
+                  const hasExpired = expireMs > 0 && expireMs < currentTime;
 
                   if (hasExpired) return null; // Filter out
 
                   // Calculate remaining seconds
-                  let remainingSeconds = 0;
-                  if (msg.expiresAt) {
-                    const expireMs = msg.expiresAt.seconds ? msg.expiresAt.seconds * 1000 : new Date(msg.expiresAt).getTime();
-                    remainingSeconds = Math.max(0, Math.ceil((expireMs - currentTime) / 1000));
-                  }
+                  const remainingSeconds = expireMs > 0 ? Math.max(0, Math.ceil((expireMs - currentTime) / 1000)) : 0;
 
                   return (
                     <motion.div
@@ -719,10 +745,12 @@ export default function ChatRoom({
 
                       {/* Timestamp Footer */}
                       <span className="text-[9px] text-slate-600 font-mono mt-1 px-1 block">
-                        {msg.createdAt?.seconds 
-                          ? new Date(msg.createdAt.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                          : new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        }
+                        {(() => {
+                          const ms = getTimestampMs(msg.createdAt);
+                          return ms > 0
+                            ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                            : '';
+                        })()}
                       </span>
                     </motion.div>
                   );
@@ -806,13 +834,22 @@ export default function ChatRoom({
               )}
             </div>
 
-            {/* Text Input */}
-            <input
-              type="text"
+            {/* Text Input - textarea with Enter to send, Shift+Enter for newline */}
+            <textarea
               placeholder={attachedFile ? "Type a file description (optional)..." : "Type a secure E2EE message..."}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              className="flex-1 bg-black/20 border border-white/10 text-white px-4 py-2.5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all placeholder:text-white/20"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (input.trim() || attachedFile) {
+                    handleSendMessage(e as any);
+                  }
+                }
+              }}
+              rows={1}
+              className="flex-1 bg-black/20 border border-white/10 text-white px-4 py-2.5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all placeholder:text-white/20 resize-none"
+              style={{ minHeight: '40px', maxHeight: '96px' }}
             />
 
             {/* Send Button */}
