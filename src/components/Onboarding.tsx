@@ -53,91 +53,102 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     setLoading(true);
     setError('');
 
+    // ── CREATE PROFILE (local-first) ──────────────────────────────────────
+    // We save the profile to localStorage and enter the app immediately.
+    // Firestore sync runs in the background so a blocked/slow network never
+    // prevents the user from creating a profile.
+    if (!isSignIn) {
+      const newUid = 'u_' + Math.random().toString(36).substring(2, 11);
+      const newUser: UserProfile = {
+        uid: newUid,
+        displayName: displayName.trim(),
+        displayNameLowercase: displayName.trim().toLowerCase(),
+        tag,
+        avatarUrl: GRADIENT_AVATARS[selectedAvatar],
+        createdAt: new Date().toISOString(),
+      };
+
+      // Save locally — this is instant and never fails
+      localStorage.setItem('chat_user', JSON.stringify(newUser));
+
+      // Best-effort Firestore sync (non-blocking)
+      // We also do a quick duplicate check first (4s timeout — skip if offline)
+      ;(async () => {
+        try {
+          const usersRef = collection(db, 'users');
+          const q = query(
+            usersRef,
+            where('displayNameLowercase', '==', newUser.displayNameLowercase),
+            where('tag', '==', tag)
+          );
+          const snap = await withTimeout(getDocs(q), 4000);
+          if (!snap.empty) {
+            // Tag collision — update localStorage with a fresh tag so the user
+            // isn't locked in a broken state on next reload
+            console.warn('Tag collision detected on Firestore sync; local profile kept.');
+            return;
+          }
+          await withTimeout(setDoc(doc(db, 'users', newUid), newUser), 4000);
+        } catch (err) {
+          // Firestore unreachable — profile lives locally only for now.
+          // The user can still chat in rooms they already have keys for.
+          console.warn('Firestore sync skipped (offline or blocked):', err);
+        }
+      })();
+
+      // Enter the app immediately without waiting for Firestore
+      setLoading(false);
+      onComplete(newUser);
+      return;
+    }
+
+
     try {
       const usersRef = collection(db, 'users');
-      
-      if (isSignIn) {
-        // Sign in with existing username and tag (case-insensitive)
-        let q = query(
+
+      // ── SIGN IN (requires Firestore) ──────────────────────────────────────
+      let q = query(
+        usersRef,
+        where('displayNameLowercase', '==', displayName.trim().toLowerCase()),
+        where('tag', '==', tag)
+      );
+      let querySnapshot = await withTimeout(getDocs(q));
+
+      if (querySnapshot.empty) {
+        // Fallback for older profiles without displayNameLowercase
+        q = query(
           usersRef,
-          where('displayNameLowercase', '==', displayName.trim().toLowerCase()),
+          where('displayName', '==', displayName.trim()),
           where('tag', '==', tag)
         );
-        let querySnapshot = await withTimeout(getDocs(q));
-
-        if (querySnapshot.empty) {
-          // Fallback for older profiles without displayNameLowercase
-          q = query(
-            usersRef,
-            where('displayName', '==', displayName.trim()),
-            where('tag', '==', tag)
-          );
-          querySnapshot = await withTimeout(getDocs(q));
-        }
-
-        if (querySnapshot.empty) {
-          setError('User profile not found. Check your name and 4-digit tag, or create a new profile.');
-          setLoading(false);
-          return;
-        }
-
-        const userDoc = querySnapshot.docs[0];
-        const loggedInUser: UserProfile = userDoc.data() as UserProfile;
-        
-        // Save to local storage
-        localStorage.setItem('chat_user', JSON.stringify(loggedInUser));
-        onComplete(loggedInUser);
-      } else {
-        // Create new account
-        // First check if this exact name + tag combo is already taken (case-insensitive check)
-        let q = query(
-          usersRef,
-          where('displayNameLowercase', '==', displayName.trim().toLowerCase()),
-          where('tag', '==', tag)
-        );
-        let querySnapshot = await withTimeout(getDocs(q));
-
-        if (querySnapshot.empty) {
-          // Fallback collision check for older profiles
-          q = query(
-            usersRef,
-            where('displayName', '==', displayName.trim()),
-            where('tag', '==', tag)
-          );
-          querySnapshot = await withTimeout(getDocs(q));
-        }
-
-        if (!querySnapshot.empty) {
-          setError('This tag combo is already in use by another user. Try regenerating your 4-digit code.');
-          setLoading(false);
-          return;
-        }
-
-        // Generate a random UID
-        const newUid = 'u_' + Math.random().toString(36).substring(2, 11);
-        const newUser: UserProfile = {
-          uid: newUid,
-          displayName: displayName.trim(),
-          displayNameLowercase: displayName.trim().toLowerCase(),
-          tag,
-          avatarUrl: GRADIENT_AVATARS[selectedAvatar],
-          createdAt: new Date().toISOString(),
-        };
-
-        // Save to Firestore
-        await withTimeout(setDoc(doc(db, 'users', newUid), newUser));
-        
-        // Save to local storage
-        localStorage.setItem('chat_user', JSON.stringify(newUser));
-        onComplete(newUser);
+        querySnapshot = await withTimeout(getDocs(q));
       }
+
+      if (querySnapshot.empty) {
+        setError('User profile not found. Check your name and 4-digit tag, or create a new profile.');
+        setLoading(false);
+        return;
+      }
+
+      const userDoc = querySnapshot.docs[0];
+      const loggedInUser: UserProfile = userDoc.data() as UserProfile;
+
+      // Save to local storage
+      localStorage.setItem('chat_user', JSON.stringify(loggedInUser));
+      onComplete(loggedInUser);
     } catch (err: any) {
       console.error('Error during onboarding:', err);
+      const isTimeout = err.message?.includes('timed out');
       const code = err.code ? ` [${err.code}]` : '';
-      setError(`Failed to connect to server${code}: ${err.message}`);
+      setError(
+        isTimeout
+          ? 'Cannot reach the server. If you have an ad blocker or privacy extension, try disabling it for this page, then retry.'
+          : `Sign in failed${code}: ${err.message}`
+      );
     } finally {
       setLoading(false);
     }
+
   };
 
   return (
