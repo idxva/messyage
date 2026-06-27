@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { UserProfile, ChatRoom } from '../types';
-import { generateSaltHex } from '../lib/crypto';
+import { generateSaltHex, deriveKey, encryptText } from '../lib/crypto';
 import { X, Search, Users, ShieldAlert, Check, Plus, UserPlus } from 'lucide-react';
 
 interface NewChatModalProps {
@@ -38,39 +38,76 @@ export default function NewChatModal({ currentUser, onClose, onSelectRoom }: New
 
     try {
       const usersRef = collection(db, 'users');
-      let q;
-
       const trimmedQuery = searchQuery.trim();
+      let results: UserProfile[] = [];
 
       // Check if user is searching for name#tag format, e.g. "Alice#1234"
       if (trimmedQuery.includes('#')) {
         const [namePart, tagPart] = trimmedQuery.split('#');
-        q = query(
+        let q = query(
           usersRef,
-          where('displayName', '==', namePart.trim()),
+          where('displayNameLowercase', '==', namePart.trim().toLowerCase()),
           where('tag', '==', tagPart.trim())
         );
+        let querySnapshot = await getDocs(q);
+        
+        if (querySnapshot.empty) {
+          // Fallback for legacy case-sensitive profile
+          q = query(
+            usersRef,
+            where('displayName', '==', namePart.trim()),
+            where('tag', '==', tagPart.trim())
+          );
+          querySnapshot = await getDocs(q);
+        }
+        
+        querySnapshot.forEach((doc) => {
+          const u = doc.data() as UserProfile;
+          if (u.uid !== currentUser.uid) {
+            results.push(u);
+          }
+        });
       } else if (/^\d{4}$/.test(trimmedQuery)) {
         // Searching by exact tag
-        q = query(usersRef, where('tag', '==', trimmedQuery));
+        const q = query(usersRef, where('tag', '==', trimmedQuery));
+        const querySnapshot = await getDocs(q);
+        querySnapshot.forEach((doc) => {
+          const u = doc.data() as UserProfile;
+          if (u.uid !== currentUser.uid) {
+            results.push(u);
+          }
+        });
       } else {
         // Search by exact displayName or prefix (limited prefix match using Firestore)
-        q = query(
+        let q = query(
           usersRef,
-          where('displayName', '>=', trimmedQuery),
-          where('displayName', '<=', trimmedQuery + '\uf8ff')
+          where('displayNameLowercase', '>=', trimmedQuery.toLowerCase()),
+          where('displayNameLowercase', '<=', trimmedQuery.toLowerCase() + '\uf8ff')
         );
-      }
+        let querySnapshot = await getDocs(q);
+        querySnapshot.forEach((doc) => {
+          const u = doc.data() as UserProfile;
+          if (u.uid !== currentUser.uid) {
+            results.push(u);
+          }
+        });
 
-      const querySnapshot = await getDocs(q);
-      const results: UserProfile[] = [];
-      querySnapshot.forEach((doc) => {
-        const u = doc.data() as UserProfile;
-        // Don't include current user in search results
-        if (u.uid !== currentUser.uid) {
-          results.push(u);
+        // Fallback for legacy case-sensitive prefix search if nothing matches
+        if (results.length === 0) {
+          q = query(
+            usersRef,
+            where('displayName', '>=', trimmedQuery),
+            where('displayName', '<=', trimmedQuery + '\uf8ff')
+          );
+          querySnapshot = await getDocs(q);
+          querySnapshot.forEach((doc) => {
+            const u = doc.data() as UserProfile;
+            if (u.uid !== currentUser.uid) {
+              results.push(u);
+            }
+          });
         }
-      });
+      }
 
       setSearchResults(results);
       if (results.length === 0) {
@@ -134,8 +171,6 @@ export default function NewChatModal({ currentUser, onClose, onSelectRoom }: New
 
         if (existingRoomId) {
           // A DM already exists! Just redirect to it
-          // We also save their password key in local storage so client can derive it
-          localStorage.setItem(`room_key_${existingRoomId}`, roomKey.trim());
           onSelectRoom(existingRoomId);
           onClose();
           return;
@@ -164,12 +199,18 @@ export default function NewChatModal({ currentUser, onClose, onSelectRoom }: New
       // Generate a new salt for PBKDF2
       const salt = generateSaltHex();
 
+      // Derive key and encrypt verification sentinel
+      const derivedKey = await deriveKey(roomKey.trim(), salt);
+      const sentinelPayload = await encryptText('verification_sentinel', derivedKey);
+      const verificationSentinel = JSON.stringify(sentinelPayload);
+
       const newRoomData = {
         name: isGroup ? groupName.trim() : '',
         isGroup,
         members: memberUids,
         memberDetails,
         encryptionKeySalt: salt,
+        verificationSentinel,
         createdAt: serverTimestamp(),
         lastMessageAt: serverTimestamp(),
       };

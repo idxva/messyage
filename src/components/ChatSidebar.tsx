@@ -201,7 +201,9 @@ export default function ChatSidebar({
               roomAvatar = otherDetails?.avatarUrl || 'linear-gradient(135deg, #64748b 0%, #475569 100%)';
             }
 
-            const snippet = decryptedSnippets[room.id] || '🔒 Encrypted Payload';
+            const snippet = room.lastMessage
+              ? (decryptedSnippets[room.id] || '🔒 Encrypted Payload')
+              : '🌱 Secure room created';
 
             return (
               <div

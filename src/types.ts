@@ -1,6 +1,7 @@
 export interface UserProfile {
   uid: string;
   displayName: string;
+  displayNameLowercase?: string; // Case-insensitive search helper
   tag: string; // 4-digit string, e.g., "4829"
   avatarUrl: string; // Selected avatar
   createdAt: any;
@@ -19,6 +20,7 @@ export interface ChatRoom {
     };
   };
   encryptionKeySalt: string; // Salt used for Web Crypto PBKDF2 key derivation
+  verificationSentinel?: string; // E2EE key validation sentinel
   lastMessage?: {
     senderName: string;
     encryptedText: string;

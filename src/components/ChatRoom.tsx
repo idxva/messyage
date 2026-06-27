@@ -76,6 +76,7 @@ export default function ChatRoom({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const deletingMessageIdsRef = useRef<Set<string>>(new Set());
 
   // Expiry ticker trigger (updated every second)
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -101,6 +102,16 @@ export default function ChatRoom({
 
     return () => unsubscribe();
   }, [roomId]);
+
+  // Auto-unlock room if passphrase is saved in localStorage
+  useEffect(() => {
+    const storedPassphrase = localStorage.getItem(`room_key_${roomId}`);
+    if (storedPassphrase && !roomCryptoKeys[roomId]) {
+      onLoadRoomKey(roomId, storedPassphrase).catch((err) => {
+        console.error('Failed to auto-unlock room:', err);
+      });
+    }
+  }, [roomId, roomCryptoKeys, onLoadRoomKey]);
 
   // 2. Fetch Messages in Real-time
   useEffect(() => {
@@ -134,16 +145,19 @@ export default function ChatRoom({
       const now = Date.now();
       const expiredList = messages.filter((msg) => {
         if (!msg.expiresAt) return false;
+        if (deletingMessageIdsRef.current.has(msg.id)) return false;
         const expireTime = msg.expiresAt.seconds ? msg.expiresAt.seconds * 1000 : new Date(msg.expiresAt).getTime();
         return expireTime < now;
       });
 
       for (const msg of expiredList) {
+        deletingMessageIdsRef.current.add(msg.id);
         try {
           // Delete message from Firestore
           await deleteDoc(doc(db, 'rooms', roomId, 'messages', msg.id));
         } catch (err) {
           console.error('Failed to clean up expired message:', msg.id, err);
+          deletingMessageIdsRef.current.delete(msg.id);
         }
       }
     };
@@ -159,10 +173,12 @@ export default function ChatRoom({
       const key = roomCryptoKeys[roomId];
       if (!key) {
         setDecryptedMessages({});
+        setDecryptedFiles({});
         return;
       }
 
       const decDict: { [msgId: string]: string } = {};
+      const decFilesDict: { [msgId: string]: string } = {};
 
       for (const msg of messages) {
         try {
@@ -178,9 +194,20 @@ export default function ChatRoom({
         } catch (e) {
           decDict[msg.id] = '🔒 [Decryption failed - Check passphrase]';
         }
+
+        // Auto-decrypt image files for inline preview
+        if (msg.hasFile && msg.fileType?.startsWith('image/') && msg.encryptedFile && msg.fileIV) {
+          try {
+            const decFile = await decryptText(msg.encryptedFile, msg.fileIV, key);
+            decFilesDict[msg.id] = decFile;
+          } catch (e) {
+            console.error('Failed to auto-decrypt image:', e);
+          }
+        }
       }
 
       setDecryptedMessages(decDict);
+      setDecryptedFiles(decFilesDict);
     };
 
     decryptAll();
@@ -502,14 +529,14 @@ export default function ChatRoom({
                 </div>
                 <button
                   onClick={() => {
-                    const pass = prompt('Enter new room password passphrase to sync with members:', localStorage.getItem(`room_key_${roomId}`) || '');
+                    const pass = prompt('Enter the shared room password passphrase to unlock room decryption:', localStorage.getItem(`room_key_${roomId}`) || '');
                     if (pass !== null && pass.trim()) {
                       onLoadRoomKey(roomId, pass.trim());
                     }
                   }}
                   className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-indigo-300 hover:text-white rounded-lg text-[10px] font-bold border border-white/10 cursor-pointer transition-all shrink-0"
                 >
-                  Edit Key
+                  Unlock / Edit
                 </button>
               </div>
             </div>
@@ -576,7 +603,9 @@ export default function ChatRoom({
               </span>
             </div>
           ) : (
-            <div className="space-y-3.5 flex-1 flex flex-col justify-end">
+            <div className="space-y-3.5 flex-1 flex flex-col">
+              {/* Spacer to push content to bottom when there are few messages */}
+              <div className="flex-grow" />
               <AnimatePresence initial={false}>
                 {messages.map((msg) => {
                   const isSelf = msg.senderId === currentUser.uid;
@@ -637,8 +666,25 @@ export default function ChatRoom({
                           </div>
                         )}
 
+                        {/* Image Preview */}
+                        {msg.hasFile && msg.fileType?.startsWith('image/') && decryptedFiles[msg.id] && (
+                          <div className="mt-2 rounded-xl overflow-hidden max-w-xs border border-white/10 shadow-md">
+                            <img
+                              src={decryptedFiles[msg.id]}
+                              alt={msg.fileName}
+                              className="w-full h-auto max-h-48 object-cover cursor-pointer hover:scale-[1.02] transition-transform"
+                              onClick={() => {
+                                const link = document.createElement('a');
+                                link.href = decryptedFiles[msg.id];
+                                link.download = msg.fileName || 'image';
+                                link.click();
+                              }}
+                            />
+                          </div>
+                        )}
+
                         {/* File Card Attachment */}
-                        {msg.hasFile && (
+                        {msg.hasFile && (!msg.fileType?.startsWith('image/') || !decryptedFiles[msg.id]) && (
                           <div className="mt-2.5 p-2 bg-black/35 border border-white/10 rounded-xl flex items-center justify-between gap-3 min-w-[210px]">
                             <div className="flex items-center gap-2 min-w-0">
                               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-indigo-300 shrink-0">

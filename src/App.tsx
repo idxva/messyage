@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { db } from './lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { UserProfile } from './types';
-import { deriveKey } from './lib/crypto';
+import { deriveKey, decryptText } from './lib/crypto';
 import Onboarding from './components/Onboarding';
 import ChatSidebar from './components/ChatSidebar';
 import ChatRoom from './components/ChatRoom';
@@ -39,10 +39,24 @@ export default function App() {
 
       const roomData = roomSnap.data();
       const salt = roomData.encryptionKeySalt;
+      const sentinel = roomData.verificationSentinel;
 
       // Derive key
       const key = await deriveKey(passphrase, salt);
       
+      // Verify key if sentinel exists (backward compatibility fallback)
+      if (sentinel) {
+        try {
+          const parsedSentinel = JSON.parse(sentinel);
+          const decrypted = await decryptText(parsedSentinel.ciphertext, parsedSentinel.iv, key);
+          if (decrypted !== 'verification_sentinel') {
+            return false;
+          }
+        } catch (e) {
+          return false;
+        }
+      }
+
       // Cache key in app state
       setRoomCryptoKeys((prev) => ({
         ...prev,
@@ -59,7 +73,13 @@ export default function App() {
   }, []);
 
   const handleLogout = () => {
-    if (window.confirm('Are you sure you want to log out of your current profile? Your E2EE keys will remain in your browser cache.')) {
+    if (window.confirm('Are you sure you want to log out of your current profile? All saved E2EE room keys will be wiped from this browser.')) {
+      // Clear room keys from localStorage
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('room_key_')) {
+          localStorage.removeItem(key);
+        }
+      });
       localStorage.removeItem('chat_user');
       setCurrentUser(null);
       setSelectedRoomId(null);

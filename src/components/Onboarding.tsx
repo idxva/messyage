@@ -47,13 +47,23 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       const usersRef = collection(db, 'users');
       
       if (isSignIn) {
-        // Sign in with existing username and tag
-        const q = query(
+        // Sign in with existing username and tag (case-insensitive)
+        let q = query(
           usersRef,
-          where('displayName', '==', displayName.trim()),
+          where('displayNameLowercase', '==', displayName.trim().toLowerCase()),
           where('tag', '==', tag)
         );
-        const querySnapshot = await getDocs(q);
+        let querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+          // Fallback for older profiles without displayNameLowercase
+          q = query(
+            usersRef,
+            where('displayName', '==', displayName.trim()),
+            where('tag', '==', tag)
+          );
+          querySnapshot = await getDocs(q);
+        }
 
         if (querySnapshot.empty) {
           setError('User profile not found. Check your name and 4-digit tag, or create a new profile.');
@@ -69,13 +79,23 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         onComplete(loggedInUser);
       } else {
         // Create new account
-        // First check if this exact name + tag combo is already taken
-        const q = query(
+        // First check if this exact name + tag combo is already taken (case-insensitive check)
+        let q = query(
           usersRef,
-          where('displayName', '==', displayName.trim()),
+          where('displayNameLowercase', '==', displayName.trim().toLowerCase()),
           where('tag', '==', tag)
         );
-        const querySnapshot = await getDocs(q);
+        let querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+          // Fallback collision check for older profiles
+          q = query(
+            usersRef,
+            where('displayName', '==', displayName.trim()),
+            where('tag', '==', tag)
+          );
+          querySnapshot = await getDocs(q);
+        }
 
         if (!querySnapshot.empty) {
           setError('This tag combo is already in use by another user. Try regenerating your 4-digit code.');
@@ -84,10 +104,11 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         }
 
         // Generate a random UID
-        const newUid = 'u_' + Math.random().toString(36).substr(2, 9);
+        const newUid = 'u_' + Math.random().toString(36).substring(2, 11);
         const newUser: UserProfile = {
           uid: newUid,
           displayName: displayName.trim(),
+          displayNameLowercase: displayName.trim().toLowerCase(),
           tag,
           avatarUrl: GRADIENT_AVATARS[selectedAvatar],
           createdAt: new Date().toISOString(),
