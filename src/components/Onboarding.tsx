@@ -4,6 +4,16 @@ import { collection, query, where, getDocs, doc, setDoc } from 'firebase/firesto
 import { UserProfile } from '../types';
 import { RefreshCw, ArrowRight, ShieldCheck, Key, LogIn, Sparkles } from 'lucide-react';
 
+/** Races a promise against a timeout. Rejects with a clear message if it takes too long. */
+function withTimeout<T>(promise: Promise<T>, ms = 10000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timed out. Check your internet connection and try again.')), ms)
+    ),
+  ]);
+}
+
 const GRADIENT_AVATARS = [
   'linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%)',
   'linear-gradient(135deg, #4E65FF 0%, #92EFFD 100%)',
@@ -53,7 +63,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           where('displayNameLowercase', '==', displayName.trim().toLowerCase()),
           where('tag', '==', tag)
         );
-        let querySnapshot = await getDocs(q);
+        let querySnapshot = await withTimeout(getDocs(q));
 
         if (querySnapshot.empty) {
           // Fallback for older profiles without displayNameLowercase
@@ -62,7 +72,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             where('displayName', '==', displayName.trim()),
             where('tag', '==', tag)
           );
-          querySnapshot = await getDocs(q);
+          querySnapshot = await withTimeout(getDocs(q));
         }
 
         if (querySnapshot.empty) {
@@ -85,7 +95,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           where('displayNameLowercase', '==', displayName.trim().toLowerCase()),
           where('tag', '==', tag)
         );
-        let querySnapshot = await getDocs(q);
+        let querySnapshot = await withTimeout(getDocs(q));
 
         if (querySnapshot.empty) {
           // Fallback collision check for older profiles
@@ -94,7 +104,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             where('displayName', '==', displayName.trim()),
             where('tag', '==', tag)
           );
-          querySnapshot = await getDocs(q);
+          querySnapshot = await withTimeout(getDocs(q));
         }
 
         if (!querySnapshot.empty) {
@@ -115,7 +125,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         };
 
         // Save to Firestore
-        await setDoc(doc(db, 'users', newUid), newUser);
+        await withTimeout(setDoc(doc(db, 'users', newUid), newUser));
         
         // Save to local storage
         localStorage.setItem('chat_user', JSON.stringify(newUser));
@@ -123,7 +133,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       }
     } catch (err: any) {
       console.error('Error during onboarding:', err);
-      setError('Failed to connect to server: ' + err.message);
+      const code = err.code ? ` [${err.code}]` : '';
+      setError(`Failed to connect to server${code}: ${err.message}`);
     } finally {
       setLoading(false);
     }
